@@ -9,20 +9,33 @@ import (
 )
 
 func main() {
-	reader := bufio.NewReader(os.Stdin)
+	for {
+		fmt.Print("ccsh> ")
 
-	fmt.Print("ccsh> ")
-	input, _ := reader.ReadString('\n')
+		reader := bufio.NewReader(os.Stdin)
+		input, _ := reader.ReadString('\n')
 
-	input = strings.TrimSpace(input)
-	parts := strings.Fields(input)
+		input = strings.TrimSpace(input)
 
-	var command = parts[0]
-	var args = parts[1:]
+		if input == "" {
+			continue
+		}
 
-	cmd := exec.Command(command, args...)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+		parts := strings.Fields(input)
+		var command = parts[0]
+		var args = parts[1:]
 
-	cmd.Run()
+		if command == "exit" {
+			os.Exit(0)
+		}
+
+		cmd := exec.Command(command, args...)
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+
+		err := cmd.Run()
+		if err != nil {
+			fmt.Println(err)
+		}
+	}
 }
