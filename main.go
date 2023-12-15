@@ -25,17 +25,43 @@ func main() {
 		var command = parts[0]
 		var args = parts[1:]
 
-		if command == "exit" {
+		switch command {
+		case "exit":
 			os.Exit(0)
-		}
 
-		cmd := exec.Command(command, args...)
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
+		case "cd":
+			var path string
+			var err error
 
-		err := cmd.Run()
-		if err != nil {
-			fmt.Println(err)
+			if len(args) > 0 {
+				path = args[0]
+			} else {
+				path, err = os.UserHomeDir()
+				if err != nil {
+					panic(err)
+				}
+			}
+			err = os.Chdir(path)
+			if err != nil {
+				panic(err)
+			}
+
+		case "pwd":
+			dir, err := os.Getwd()
+			if err != nil {
+				panic(err)
+			}
+			fmt.Println(dir)
+
+		default:
+			cmd := exec.Command(command, args...)
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+
+			err := cmd.Run()
+			if err != nil {
+				fmt.Println(err)
+			}
 		}
 	}
 }
