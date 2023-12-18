@@ -6,19 +6,14 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"os/signal"
 	"strings"
 )
 
-func pwd(w *io.PipeWriter) {
-	defer w.Close()
-	dir, err := os.Getwd()
-	if err != nil {
-		panic(err)
-	}
-	fmt.Fprintln(w, dir)
-}
-
 func main() {
+	signal.Ignore(os.Interrupt)
+	history := NewHistory()
+
 	for {
 		fmt.Print("ccsh> ")
 
@@ -35,14 +30,17 @@ func main() {
 		var cmds []*exec.Cmd
 		var output io.ReadCloser
 
-		for _, command := range commands {
-			command = strings.TrimSpace(command)
-			parts := strings.Fields(command)
+		for _, commandLine := range commands {
+			commandLine = strings.TrimSpace(commandLine)
+			history.AddCommand(commandLine)
+
+			parts := strings.Fields(commandLine)
 			var command = parts[0]
 			var args = parts[1:]
 
 			switch command {
 			case "exit":
+				history.file.Close()
 				os.Exit(0)
 
 			case "cd":
@@ -52,19 +50,21 @@ func main() {
 				if len(args) > 0 {
 					path = args[0]
 				} else {
-					path, err = os.UserHomeDir()
-					if err != nil {
-						panic(err)
-					}
+					path, _ = os.UserHomeDir()
 				}
 				err = os.Chdir(path)
 				if err != nil {
-					panic(err)
+					fmt.Printf("%v\n", err)
+				}
+
+			case "history":
+				for i, hc := range history.commands {
+					fmt.Printf("%d: %s\n", i, hc)
 				}
 
 			case "pwd":
 				pr, pw := io.Pipe()
-				go pwd(pw)
+				go Pwd(pw)
 				if len(commands) == 1 {
 					io.Copy(os.Stdout, pr)
 				} else {
@@ -93,7 +93,12 @@ func main() {
 		}
 
 		for _, cmd := range cmds {
-			cmd.Wait()
+			err := cmd.Wait()
+			if err != nil {
+				if cmd.ProcessState.ExitCode() == -1 {
+					fmt.Printf("command not found: %s\n", cmd.Path)
+				}
+			}
 		}
 	}
 }
