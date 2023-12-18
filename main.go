@@ -3,10 +3,20 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
 )
+
+func pwd(w *io.PipeWriter) {
+	defer w.Close()
+	dir, err := os.Getwd()
+	if err != nil {
+		panic(err)
+	}
+	fmt.Fprintln(w, dir)
+}
 
 func main() {
 	for {
@@ -21,47 +31,69 @@ func main() {
 			continue
 		}
 
-		parts := strings.Fields(input)
-		var command = parts[0]
-		var args = parts[1:]
+		commands := strings.Split(input, "|")
+		var cmds []*exec.Cmd
+		var output io.ReadCloser
 
-		switch command {
-		case "exit":
-			os.Exit(0)
+		for _, command := range commands {
+			command = strings.TrimSpace(command)
+			parts := strings.Fields(command)
+			var command = parts[0]
+			var args = parts[1:]
 
-		case "cd":
-			var path string
-			var err error
+			switch command {
+			case "exit":
+				os.Exit(0)
 
-			if len(args) > 0 {
-				path = args[0]
-			} else {
-				path, err = os.UserHomeDir()
+			case "cd":
+				var path string
+				var err error
+
+				if len(args) > 0 {
+					path = args[0]
+				} else {
+					path, err = os.UserHomeDir()
+					if err != nil {
+						panic(err)
+					}
+				}
+				err = os.Chdir(path)
 				if err != nil {
 					panic(err)
 				}
-			}
-			err = os.Chdir(path)
-			if err != nil {
-				panic(err)
-			}
 
-		case "pwd":
-			dir, err := os.Getwd()
-			if err != nil {
-				panic(err)
-			}
-			fmt.Println(dir)
+			case "pwd":
+				pr, pw := io.Pipe()
+				go pwd(pw)
+				if len(commands) == 1 {
+					io.Copy(os.Stdout, pr)
+				} else {
+					output = pr
+				}
 
-		default:
-			cmd := exec.Command(command, args...)
-			cmd.Stdout = os.Stdout
-			cmd.Stderr = os.Stderr
+			default:
+				cmd := exec.Command(command, args...)
+				cmd.Stderr = os.Stderr
 
-			err := cmd.Run()
-			if err != nil {
-				fmt.Println(err)
+				cmds = append(cmds, cmd)
+
+				if output != nil {
+					cmd.Stdin = output
+				}
+				output, _ = cmd.StdoutPipe()
 			}
+		}
+
+		if len(cmds) > 0 {
+			cmds[len(cmds)-1].Stdout = os.Stdout
+		}
+
+		for _, cmd := range cmds {
+			cmd.Start()
+		}
+
+		for _, cmd := range cmds {
+			cmd.Wait()
 		}
 	}
 }
