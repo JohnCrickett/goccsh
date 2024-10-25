@@ -2,16 +2,43 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"os/signal"
 	"strings"
+	"syscall"
 )
 
+func notifyCmds(cmds []*exec.Cmd, s os.Signal) {
+	for _, cmd := range cmds {
+		cmd.Process.Signal(s)
+	}
+}
+
 func main() {
-	signal.Ignore(os.Interrupt)
+	signalChannel := make(chan os.Signal, 1)
+	signal.Notify(signalChannel, os.Interrupt, syscall.SIGTERM)
+
+	var cmds []*exec.Cmd
+	ctx, cancel := context.WithCancel(context.Background())
+
+	go func(ctx context.Context) {
+		select {
+		case sig := <-signalChannel:
+			switch sig {
+			case os.Interrupt, syscall.SIGTERM:
+				notifyCmds(cmds, sig)
+			}
+		case <-ctx.Done():
+			close(signalChannel)
+			return
+		}
+
+	}(ctx)
+
 	history := NewHistory()
 
 	for {
@@ -27,7 +54,6 @@ func main() {
 		}
 
 		commands := strings.Split(input, "|")
-		var cmds []*exec.Cmd
 		var output io.ReadCloser
 
 		for _, commandLine := range commands {
@@ -40,6 +66,7 @@ func main() {
 
 			switch command {
 			case "exit":
+				cancel()
 				history.file.Close()
 				os.Exit(0)
 
@@ -73,6 +100,7 @@ func main() {
 
 			default:
 				cmd := exec.Command(command, args...)
+				cmd.Stdin = os.Stdin
 				cmd.Stderr = os.Stderr
 
 				cmds = append(cmds, cmd)
@@ -95,10 +123,13 @@ func main() {
 		for _, cmd := range cmds {
 			err := cmd.Wait()
 			if err != nil {
-				if cmd.ProcessState.ExitCode() == -1 {
-					fmt.Printf("command not found: %s\n", cmd.Path)
+				if err.Error() != "signal: interrupt" {
+					if cmd.ProcessState.ExitCode() == -1 {
+						fmt.Printf("command not found: %s\n", cmd.Path)
+					}
 				}
 			}
 		}
+		cmds = nil
 	}
 }
